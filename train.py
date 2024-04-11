@@ -1,5 +1,3 @@
-import argparse
-
 import spacy
 
 import torch
@@ -11,6 +9,7 @@ from tqdm import trange
 from model import Encoder, Decoder, Seq2Seq
 from dataloader import get_dataset, get_dataloader
 from data_preprocessing import tokenize_ds, build_vocab, numericalize_vocab
+from utils import plot_loss
 
 def main():
     seed = 4488
@@ -23,7 +22,9 @@ def main():
     unk_token = "<unk>"
     pad_token = "<pad>"
     max_length = 1_000
-    
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     dataset = get_dataset(path="./data", data_files="en-fr.txt", seed=seed)
 
     train_data, valid_data, test_data = (
@@ -86,20 +87,23 @@ def main():
     decoder = Decoder(output_vocab=len(fr_vocab), embedding_dim=256, hidden_dim=512, num_layers=4, dropout=0.5)
     model = Seq2Seq(encoder=encoder, decoder=decoder, device=device).to(device)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     lr = 0.7
     loss_fn = nn.CrossEntropyLoss(ignore_index=pad_index)
-    optimizer = torch.optim.SGD(model.parameters, momentum=0.9, lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), momentum=0.9, lr=lr)
     scheduler = LambdaLR(optimizer, lambda epoch: 1.0 if epoch < 5 else 0.5 ** ((epoch - 5) / 0.5))
 
     epochs = 7
     tf_ratio = 0.5
     grad_clip_norm = 5
 
+    best_valid_loss = float("inf")
+
+    train_losses, valid_losses = [], []
+
     for epoch in trange(epochs):
         model.train()
         train_loss = 0
-        for X in enumerate(train_dataloader):
+        for X in train_dataloader:
             src = X["en_ids"].to(device)
             trg = X["fr_ids"].to(device)
             output = model(src, trg, tf_ratio)
@@ -116,7 +120,7 @@ def main():
         model.eval()
         with torch.inference_mode():
             valid_loss = 0
-            for X in enumerate(valid_dataloader):
+            for X in valid_dataloader:
                 src = X["en_ids"].to(device)
                 trg = X["fr_ids"].to(device)
                 output = model(src, trg, 0)
@@ -124,7 +128,30 @@ def main():
                 trg = trg[:, 1:].reshape(-1)
                 valid_loss += loss.item()
 
-        print(f"Train Loss: {train_loss} | Valid Loss: {valid_loss}")
-    
+        train_loss /= len(train_dataloader)
+        valid_loss /= len(valid_dataloader)
+
+        print(f"Epoch: {epoch} | Train Loss: {train_loss / len(train_dataloader)} | Valid Loss: {valid_loss}")
+        
+        train_losses.append(train_loss)
+        valid_losses.append(valid_loss)
+
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(model.state_dict(), "./saved/model.pt")
+
+    model.eval()
+    with torch.inference_mode():
+        valid_loss = 0
+        for X in test_dataloader:
+            src = X["en_ids"].to(device)
+            trg = X["fr_ids"].to(device)
+            output = model(src, trg, 0)
+            output = output[:, 1:].reshape(-1, output.shape[-1])
+            trg = trg[:, 1:].reshape(-1)
+            valid_loss += loss.item()
+
+    plot_loss(train_losses, valid_losses, save=True)
+
 if __name__ == "__main__":
     main()
