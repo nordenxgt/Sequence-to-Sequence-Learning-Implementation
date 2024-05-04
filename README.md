@@ -20,3 +20,16 @@ python train.py
 
 - Don't split data into train, valid and test sets when working with unprocessed default data. (Data won't be distributed correctly)
 - Write a translation script.
+
+## Citation
+
+```bibtex
+@misc{sutskever2014sequence,
+      title={Sequence to Sequence Learning with Neural Networks}, 
+      author={Ilya Sutskever and Oriol Vinyals and Quoc V. Le},
+      year={2014},
+      eprint={1409.3215},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
+```
